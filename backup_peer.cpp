@@ -12,7 +12,9 @@
 #include<pthread.h>
 #include<fstream>
 #include<sstream>
-#define BUF_SIZE 2048
+#include <sys/types.h> 
+#include <sys/stat.h> 
+#define BUF_SIZE 31876
 using namespace std;
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -24,9 +26,15 @@ void client(int,char*);
 struct file{
             char *fileName;
             int port;
+            int no_chunks;
+            int chunks[100];
         };
+struct sktChunk{
+    int no_chunks;
+    char fName[200];
+    int chunks[100];
+};       
 void* client(void* args){
-
     cout<<"enter port for clinet"<<endl;    
         int port;
         cin>>port;
@@ -36,6 +44,14 @@ void* client(void* args){
         getline(cin,cmd);
         char *fileName=(char *)malloc(sizeof(cmd.length()+1));
         strcpy(fileName,cmd.c_str());
+       //struct sktChunk *sC=(struct sktChunk *)malloc(sizeof(struct sktChunk));
+        struct sktChunk sC;
+        strcpy(sC.fName,fileName);
+        cout<<"cluent:f:"<<sC.fName<<endl;
+        sC.chunks[0]=1;
+        sC.chunks[1]=3;
+        sC.chunks[2]=5;
+        sC.no_chunks=3;
     int client_socket=socket(AF_INET,SOCK_STREAM,0);
     struct sockaddr_in server_address;
     server_address.sin_family=AF_INET;
@@ -46,61 +62,87 @@ void* client(void* args){
         printf("connection failed\n");
     else
         printf("connection success\n");
+    char buff[sizeof(struct sktChunk)];
+        // memcpy(buff,&sC,sizeof(struct sktChunk));    
+        write(client_socket,&sC,sizeof(buff));
     long fd1, fd2;    
     long ret_in, ret_out;    
-     
+    long long fileSize;
+    recv(client_socket,&fileSize,sizeof(fileSize),0); 
+    cout<<"fileSize:"<<fileSize<<endl;
+    long long fd=open(sC.fName, O_CREAT|O_TRUNC|O_WRONLY,0644);
+    lseek(fd, fileSize-1, SEEK_SET); //<- err check
+    write(fd, "", 1);
+    ftruncate(fd, fileSize);
+    close(fd); 
     // string cmd;
     // getline(cin,cmd);
     // char *fileName=(char *)malloc(sizeof(cmd.length()+1));
     // strcpy(fileName,cmd.c_str());
-    fd2=open(fileName,O_WRONLY|O_TRUNC|O_CREAT,0777);
-    int counter=0;
-    char buf[BUF_SIZE];
-    while((ret_in=read(client_socket,buf,sizeof(buf)))>0){
-    ret_out=write(fd2,buf,BUF_SIZE);
-    }   
+    fd2=open(sC.fName,O_WRONLY,0644);
+    char buffer[BUF_SIZE];
+   // int arr[3]={1,3,5};
+    for(int i=0;i<sC.no_chunks;i++)
+    {
 
-    close(client_socket);     
+     //lseek ( fd1 , ((arr[i]-1)*100)-1 , SEEK_SET );
+        lseek ( fd2 , ((sC.chunks[i]-1)*BUF_SIZE)-1 , SEEK_SET );
+        if((ret_in=read(client_socket,buffer,BUF_SIZE))>0)
+        {
+            cout<<"ret_in::"<<ret_in<<endl;
+            ret_out=write(fd2,buffer,ret_in);
+        }
+    }
+//   int arr2[3]={2,4,6};
+//   for(int i=0;i<3;i++){
+//      lseek ( fd1 , ((arr2[i]-1)*100)-1 , SEEK_SET );
+//      lseek ( fd2 , ((arr2[i]-1)*100)-1 , SEEK_SET );
+//  if ((ret_in=read(fd1,buffer,100))>0){
+//      cout<<"ret_in::"<<ret_in<<endl;
+//   ret_out=write(fd2,buffer,ret_in);
+//   }
+//   }  
+  close ( fd1 );
+  close ( fd2 );
+    // fd2=open(fileName,O_WRONLY|O_TRUNC|O_CREAT,0777);
+    // int counter=0;
+    // char buf[BUF_SIZE];
+    // while((ret_in=read(client_socket,buf,sizeof(buf)))>0){
+    // ret_out=write(fd2,buf,BUF_SIZE);
+    // }   
+
+    close(client_socket);    
     return NULL;
 }
 
 void* server_handle_connection(void* input){
     int client_socket=((struct file*)input)->port;
     char *fileName=((struct file*)input)->fileName;
+    int no_chunks=((struct file*)input)->no_chunks;
+    int chunk_array[no_chunks];
+    for(int i=0;i<no_chunks;i++)
+        chunk_array[i]=((struct file*)input)->chunks[i];
+    cout<<"chunk_no:"<<chunk_array[0]<<" "<<chunk_array[1]<<" "<<chunk_array[2]<<endl;    
     cout<<"fileName:"<<fileName<<endl;
     free(input);
     long fd1, fd2;    
     long ret_in, ret_out;    
-     //char fileName[20];
-    //  printf("enter input file\n");
-    //  scanf("%s",fileName);
-    // struct file_name{
-    //     char file_name[100];
-    // };
-    // struct file_data{
-    //     int seq_no;
-    //     char buffer[BUF_SIZE];
-    // };
-
-    // struct file_data f_d;
-    // struct file_name f_n;
-    //scanf("%s",f_n.file_name);
     char buffer[BUF_SIZE];
     fd1=open(fileName,O_RDONLY);
     printf("fd1==%ld\n", fd1);
-    //char buf[sizeof(struct file_data)];
-    //int counter=0;
-    while((ret_in=read(fd1,buffer,BUF_SIZE))>0){
-        //f_d.seq_no=counter+10;
-    //memcpy(buf,&f_d,sizeof(struct file_data)); 
-    //counter++;
-   // cout<<"ret::"<<ret_in<<endl;
-    ret_out=write(client_socket,buffer,sizeof(buffer));
+    for(int i=0;i<no_chunks;i++)
+    {   
+        lseek ( fd1 , ((chunk_array[i]-1)*BUF_SIZE)-1 , SEEK_SET );
+       // lseek ( fd2 , ((chunk_array[i]-1)*100)-1 , SEEK_SET );
+        if((ret_in=read(fd1,buffer,BUF_SIZE))>0)
+        {
+            ret_out=write(client_socket,buffer,ret_in);
 
-    }    
+        }   
+    }
 
-     close(client_socket);
-     return NULL;
+    close(client_socket);
+    return NULL;
 
 }
 void* server(void* pport){
@@ -129,12 +171,30 @@ void* server(void* pport){
         struct file *f_s=(struct file *)malloc(sizeof(struct file));
         f_s->port=client_socket;
         string cmd;
-        getline(cin,cmd);
-        char *fName=(char *)malloc(sizeof(cmd.length()+1));
-        strcpy(fName,cmd.c_str());
-        cout<<"fName::"<<fName<<endl;
+        // getline(cin,cmd);
+        // char *fName=(char *)malloc(sizeof(cmd.length()+1));
+        // strcpy(fName,cmd.c_str());
+        char fName[200];
+        cout<<"waiting for read\n";
+        char buf[sizeof(struct sktChunk)];
+
+        struct sktChunk sC;
+        if(read(client_socket,&sC,sizeof(buf)))
+            cout<<"fileName read"<<endl;
+       // memcpy(&sC,buf,sizeof(buf));
        // char fName[20]="sahoo.mp4";
-        f_s->fileName=fName;
+       struct stat sb;
+        long fd1 = open ( sC.fName , O_RDONLY );
+        if(fstat(fd1, &sb)!=-1)
+        cout<<"server FileSize::"<<sb.st_size<<endl;
+        send(client_socket,&sb.st_size,sizeof(long long),0); 
+        cout<<"fName::"<<sC.fName<<endl;
+        cout<<"no_chunks::"<<sC.no_chunks<<endl;
+        
+        f_s->fileName=sC.fName;
+        for(int i=0;i<sC.no_chunks;i++)
+            f_s->chunks[i]=sC.chunks[i];
+        f_s->no_chunks=sC.no_chunks;
         pthread_t t;
         pthread_create(&t,NULL,server_handle_connection,(void *)f_s);
     }
@@ -143,7 +203,7 @@ return NULL;
 
 int main(int argc, char* argv[]){
         string val=string(argv[1]);
-
+        freopen("outputpeer.txt", "a", stdout);
         int prt=stoi(val);
         cout<<"prt::"<<prt;
         int *port=(int *)malloc(sizeof(int));
@@ -151,10 +211,11 @@ int main(int argc, char* argv[]){
         pthread_t ts;
         pthread_create(&ts,NULL,server,port);
         pthread_detach(ts);
+        while(1){
         pthread_t t;
         int val1=pthread_create(&t,NULL,client,NULL);
         if(!val1)
             cout<<"error"<<endl;
         pthread_join(t,NULL);
-
+        }
    }
